@@ -1,0 +1,253 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
+*{
+    font-family: "Poppins", sans-serif;
+    scroll-behavior: smooth;
+}
+body{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+a{
+    color: #fff;
+    text-decoration: none;
+}
+.container{
+    margin: 30px;
+}
+li{
+    list-style: none;
+}
+.btn{
+    background-color: #035CA3;
+    color: #fff;
+    cursor: pointer;
+    border:none;
+    border: 10px;
+    padding: 7px 12px;
+}
+.card {
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    padding: 10px;
+    width: 200px; /* Adjust width as needed */
+    margin: 10px;
+    text-align: center;
+    transition: transform 0.3s ease;
+}
+
+.card img {
+    width: 100%; /* Make the image fill the container */
+    border-radius: 8px; /* Match the border radius of the card */
+}
+.num-round{
+    background-color: #000080;
+    color: #fff;
+    /* width: 100%; */
+    padding: 10px 15px;
+    border-radius: 50%;
+}
+.bold-text{
+    font-weight: bold;
+    font-size: larger;
+}
+.board{
+    background-color: #000080;
+    text-align: center;
+    height: 100px;
+    align-content: center;
+    color: #fff;
+    margin-top: 8rem;
+}
+
+
+/* Header */
+.header-main{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding:0 10vh ;
+    background-color: #000080;
+}
+.header-main h1{
+    color:#fff;
+}
+.navbar{
+    display: flex;
+    align-items: center;
+}
+.navbar ul{
+    display: flex;
+    align-items: center;
+    color: #fff;
+    cursor: pointer;
+    margin-right: 50px;
+    font-size: 20px;
+}
+.navbar ul li:hover{
+    color: #97d2ff;
+    border-bottom: #fff solid 1px;
+}
+
+.navbar ul li{
+    margin: 0 20px;
+}
+/* Hero Main */
+.hero-main{
+    margin-bottom: 70px;
+}
+.tagline{
+    height: 31.5rem;
+    background-image: url("./imgs/landing-front-3.jpg");
+    background-repeat: no-repeat;
+    background-size:contain;
+    width: 100%;
+    margin-top: 0;
+    box-shadow: 30px 0px 50px 20px rgba(255, 255, 255, 0.925) inset;
+    filter: blur(0.5px);
+    position: relative;
+}
+.tagline::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 5%; /* Adjust the height of the blurred area */
+    background: linear-gradient(to top, rgba(255, 255, 255, 0), white); /* Gradient for soft transition */
+    filter: blur(10px); /* Adjust the blur radius */
+    z-index: 1; /* Ensure the blur layer is on top of the image */
+}
+.tagline h1{
+    margin: 0;
+    color:#000080;
+}
+.tag-text{
+    position: relative;
+    top: 7rem;
+    left:2.5rem ;
+    /* background-color: red; */
+    width: 50%;
+    font-size: 40px;
+}
+.breif{
+    font-size: 20px;
+    text-align: center;
+    padding: 0 8rem;
+    margin: 8rem 0;
+    color: grey;
+}
+.breif span{
+    font-weight: bolder;
+}
+/* About us */
+.about-us{
+    text-align: center;
+}
+.about-us h1{
+    font-size: 60px;
+    color: #000080;
+
+}
+.about-us{
+    font-size: 20px;
+}
+.about , .core-value{
+    line-height: 40px;
+}
+.core-value ul li{
+    margin-bottom: 40px;
+}
+.core-value ul{
+    text-align: left;
+}
+
+/* Featured Products */
+
+.featured-products .container h1{
+    text-align: center;
+    color: #000080;
+    font-size: 60px;
+}
+.products{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+.products .card{
+    cursor: pointer;
+    margin: 10px;
+    
+}
+.products .card:hover{
+    transform: scale(1.1);
+    
+}
+.prd-desc{
+    position: inherit;
+    margin-top: 23vh;
+    height: 20%;
+    color: #fff;
+    font-size: 18px;
+    text-align: center;
+    padding:auto ;
+    background-color:#000080;
+}
+/* Footer */
+.footer .container{
+    padding: 3rem;
+    margin-top: 10rem;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    display: flex;
+    justify-content: space-between;
+
+}
+
+.footer .container .heading{
+    font-size: 30px;
+    color: rgb(101, 101, 101);
+}
+.message-info{
+    padding-left: 20px;
+    width: 50%;
+}
+.message-info input,.message-info label{
+    display: block;
+}
+.message-info input{
+    height: 2rem;
+    width: 100%;
+    margin-bottom: 20px;
+    border: none;
+    border-bottom: #000 solid 1px;
+}
+.message-info textarea{
+    width: 100%;
+    height: 10rem;
+    padding: 10px;
+}
+.ar{
+    color:red
+}
+.our-info{
+    
+    margin-top: 0.1rem;
+    width: 30%;
+}
+.contact-info h1,.phone-hours h1{ 
+    font-size: 40px;
+    color: rgb(101, 101, 101);
+    font-weight: 400;
+}
+.phone-hours{
+    margin-top: 10rem;
+}
+footer{
+    text-align: center;
+    background-color: #000080;
+    color: #fff;
+    margin-top: 5rem;
+    height: 100%;
+    padding: 2rem 0;
+}
