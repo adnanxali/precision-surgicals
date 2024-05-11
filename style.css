@@ -93,13 +93,28 @@ li{
 .navbar ul li{
     margin: 0 20px;
 }
+video{
+    width: 100%;
+}
+video::-webkit-media-controls {
+    display: none !important;
+}
+video::-webkit-media-controls-enclosure {
+    display: none !important;
+}
+video::-webkit-media-controls-panel {
+    display: none !important;
+}
+.video-section{
+    padding: 10rem 2rem;
+}
 /* Hero Main */
 .hero-main{
     margin-bottom: 70px;
 }
 .tagline{
     height: 31.5rem;
-    background-image: url("./imgs/landing-front-3.jpg");
+    background-image: url("./imgs/front-landing-final.jpg");
     background-repeat: no-repeat;
     background-size:contain;
     width: 100%;
