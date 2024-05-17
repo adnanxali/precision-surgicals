@@ -10,12 +10,16 @@
     <header class="header-main">
         <h1>Precision Surgicals</h1>
         <nav class="navbar">
-            <ul>
+            <ul class="menu">
                 <li><a href="index.html">Home</a></li>
-                <li><a href="#product-id">Products<a/></li>
+                <li><a href="#product-id">Products</a></li>
                 <li><a href="./about.html">About</a></li>
             </ul>
-            <a href="#contact-id"><button class="contact btn">Contact Us</button></a>
+            <div class="hamburger">
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+            </div>
         </nav>
     </header>
     <section class="hero-main">
@@ -122,6 +126,7 @@
     <footer>
         <p>Explore more with Precison Surgical. Stay connected for updates, news, and new Products. © <span id="year"></span> All rights reserved.</p>
     </footer>
+    <script src="./script.js"></script>
     
     <script>
         document.getElementById("year").innerHTML = new Date().getFullYear();
