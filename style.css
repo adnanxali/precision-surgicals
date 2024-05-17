@@ -275,6 +275,9 @@ footer{
     height: 100%;
     padding: 2rem 0;
 }
+.hamburger{
+    display: none;
+}
 
 
 @media only screen and (max-width: 768px) {
