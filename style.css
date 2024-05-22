@@ -296,7 +296,7 @@ footer{
     .menu{
         position: fixed;
         left: -200%;
-        top:70px;
+        top:117px;
         gap:0;
         flex-direction: column;
         background-color: #000080;
@@ -312,6 +312,38 @@ footer{
     .menu.active{
         left: 0;
         z-index: 2;
+    }
+    .tag-text{
+        font-size: 30px;
+        text-align: center;
+        margin-left: 50px;
+    }
+    .tagline{
+        background-image: url("");
+        background-color: #E6E6FA;
+        background-repeat: no-repeat;
+        background-size:contain;
+        width: 100%;
+        margin-top: 0;
+        box-shadow: none;
+        filter: blur(0.5px);
+        position: relative;
+    }
+    .breif{
+        font-size: 20px;
+        padding: 0px;
+        margin-top: 0px;
+        text-align: center;
+        margin-bottom: 0px;
+    }
+    .video-section{
+        margin-top: -20px;
+    }
+    .featured-products .container h1{
+        font-size: 30px;
+    }
+    .featured-products{
+        margin-top: 0px;
     }
 
 }
