@@ -352,5 +352,8 @@ footer{
     .board h1{
         padding: 0px 10px;
     }
+    .board{
+        padding: 8vh 0px;
+    }
 
 }
