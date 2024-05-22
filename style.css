@@ -316,7 +316,10 @@ footer{
     .tag-text{
         font-size: 30px;
         text-align: center;
-        margin-left: 50px;
+        justify-content: center;
+        
+        margin: 0px 14%;
+        /* margin-left: 50px; */
     }
     .tagline{
         background-image: url("");
@@ -344,6 +347,10 @@ footer{
     }
     .featured-products{
         margin-top: 0px;
+        width: 100%;
+    }
+    .board h1{
+        padding: 0px 10px;
     }
 
 }
