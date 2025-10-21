@@ -1,0 +1,131 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'LambdaDeploy Pipeline - Lambda Functions'
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Description: Prefix for resource names
+    Default: lambdadeploy
+
+Resources:
+  # IAM Role for Lambda Functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${StackPrefix}-LambdaExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobSuccessResult
+                  - codepipeline:PutJobFailureResult
+                  - codepipeline:GetPipelineExecution
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lambdadeploy/*"
+
+  # Notification Handler Lambda
+  NotificationHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${StackPrefix}-notification-handler"
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Notification handler placeholder');
+            return { statusCode: 200, body: 'OK' };
+          };
+      Environment:
+        Variables:
+          SLACK_WEBHOOK_URL: !Sub "{{resolve:ssm:/lambdadeploy/slack-webhook-url:1}}"
+      Timeout: 60
+
+  # Deployment Orchestrator Lambda
+  DeploymentOrchestrator:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${StackPrefix}-deployment-orchestrator"
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Deployment orchestrator placeholder');
+            return { statusCode: 200, body: 'OK' };
+          };
+      Timeout: 300
+
+  # Sample Application Lambda
+  SampleApp:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${StackPrefix}-app"
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              body: JSON.stringify({
+                message: 'Hello from LambdaDeploy Pipeline!',
+                timestamp: new Date().toISOString()
+              })
+            };
+          };
+      Environment:
+        Variables:
+          NODE_ENV: production
+
+Outputs:
+  LambdaExecutionRoleArn:
+    Description: ARN of the Lambda execution role
+    Value: !GetAtt LambdaExecutionRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-LambdaExecutionRole"
+
+  NotificationHandlerArn:
+    Description: ARN of the notification handler Lambda function
+    Value: !GetAtt NotificationHandler.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-NotificationHandler"
+
+  DeploymentOrchestratorArn:
+    Description: ARN of the deployment orchestrator Lambda function
+    Value: !GetAtt DeploymentOrchestrator.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-DeploymentOrchestrator"
+
+  SampleAppArn:
+    Description: ARN of the sample application Lambda function
+    Value: !GetAtt SampleApp.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-SampleApp"

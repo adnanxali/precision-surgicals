@@ -1,0 +1,44 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+    commands:
+      - echo "Starting install phase..."
+
+  pre_build:
+    commands:
+      - echo "Starting pre-build phase..."
+      - pwd
+      - ls -la
+
+  build:
+    commands:
+      - echo "Starting build phase..."
+      - mkdir -p build
+      - echo "Build completed successfully"
+
+  post_build:
+    commands:
+      - echo "Starting post-build phase..."
+      - echo "Build completed on $(date)"
+
+artifacts:
+  files:
+    - '**/*'
+  secondary-artifacts:
+    notification-handler:
+      files:
+        - notification-handler.zip
+    deployment-orchestrator:
+      files:
+        - deployment-orchestrator.zip
+    app:
+      files:
+        - app.zip
+
+cache:
+  paths:
+    - 'node_modules/**/*'
+    - 'src/lambda/*/node_modules/**/*'

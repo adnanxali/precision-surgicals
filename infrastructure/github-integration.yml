@@ -1,0 +1,330 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GitHub Integration for Lambda Deploy Pipeline - Phase 6'
+
+Parameters:
+  GitHubOwner:
+    Type: String
+    Description: GitHub repository owner/organization
+    Default: 'your-github-username'
+  
+  GitHubRepo:
+    Type: String
+    Description: GitHub repository name
+    Default: 'lambda-deploy-pipeline'
+  
+  GitHubBranch:
+    Type: String
+    Description: GitHub branch to monitor
+    Default: 'main'
+  
+  GitHubToken:
+    Type: String
+    Description: GitHub personal access token (stored in Secrets Manager)
+    NoEcho: true
+
+Resources:
+  # Store GitHub token securely
+  GitHubTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${AWS::StackName}-github-token'
+      Description: 'GitHub Personal Access Token for CodePipeline'
+      SecretString: !Ref GitHubToken
+
+  # S3 bucket for pipeline artifacts (if not exists)
+  PipelineArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-pipeline-artifacts-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # CodePipeline with GitHub source
+  GitHubPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub '${AWS::StackName}-github-pipeline'
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelineArtifactsBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: '1'
+              Configuration:
+                Owner: !Ref GitHubOwner
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Sub '{{resolve:secretsmanager:${GitHubTokenSecret}:SecretString}}'
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: SourceOutput
+
+        - Name: Build
+          Actions:
+            - Name: BuildAction
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+
+        - Name: Deploy
+          Actions:
+            - Name: DeployLambdas
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Provider: Lambda
+                Version: '1'
+              Configuration:
+                FunctionName: !Ref DeploymentOrchestratorFunction
+              InputArtifacts:
+                - Name: BuildOutput
+
+  # GitHub webhook for automatic triggers
+  GitHubWebhook:
+    Type: AWS::CodePipeline::Webhook
+    Properties:
+      Name: !Sub '${AWS::StackName}-github-webhook'
+      TargetPipeline: !Ref GitHubPipeline
+      TargetAction: SourceAction
+      TargetPipelineVersion: !GetAtt GitHubPipeline.Version
+      RegisterWithThirdParty: true
+      Authentication: GITHUB_HMAC
+      AuthenticationConfiguration:
+        SecretToken: !Sub '{{resolve:secretsmanager:${GitHubTokenSecret}:SecretString}}'
+      Filters:
+        - JsonPath: $.ref
+          MatchEquals: !Sub 'refs/heads/${GitHubBranch}'
+
+  # CodeBuild project for GitHub source
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${AWS::StackName}-github-build'
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                nodejs: 18
+            pre_build:
+              commands:
+                - echo Logging in to Amazon ECR...
+                - npm install
+                - npm run test
+            build:
+              commands:
+                - echo Build started on `date`
+                - echo Building Lambda functions...
+                - npm run build
+            post_build:
+              commands:
+                - echo Build completed on `date`
+          artifacts:
+            files:
+              - '**/*'
+            name: BuildArtifact
+
+  # Lambda function for deployment orchestration
+  DeploymentOrchestratorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-deployment-orchestrator'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const codepipeline = new AWS.CodePipeline();
+          
+          exports.handler = async (event) => {
+              console.log('Deployment orchestrator triggered:', JSON.stringify(event, null, 2));
+              
+              try {
+                  // Get job details from CodePipeline
+                  const jobId = event['CodePipeline.job'].id;
+                  
+                  // Simulate deployment logic
+                  console.log('Starting Lambda deployment process...');
+                  
+                  // Here you would add actual deployment logic:
+                  // - Update Lambda functions
+                  // - Run database migrations
+                  // - Update configurations
+                  // - Send notifications
+                  
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                  
+                  // Signal success to CodePipeline
+                  await codepipeline.putJobSuccessResult({
+                      jobId: jobId
+                  }).promise();
+                  
+                  console.log('Deployment completed successfully');
+                  return { statusCode: 200, body: 'Deployment successful' };
+                  
+              } catch (error) {
+                  console.error('Deployment failed:', error);
+                  
+                  // Signal failure to CodePipeline
+                  await codepipeline.putJobFailureResult({
+                      jobId: event['CodePipeline.job'].id,
+                      failureDetails: {
+                          message: error.message,
+                          type: 'JobFailed'
+                      }
+                  }).promise();
+                  
+                  throw error;
+              }
+          };
+
+  # IAM Roles
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PipelineExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${PipelineArtifactsBucket}/*'
+                  - !Sub 'arn:aws:s3:::${PipelineArtifactsBucket}'
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: !GetAtt CodeBuildProject.Arn
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt DeploymentOrchestratorFunction.Arn
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BuildExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${PipelineArtifactsBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !Sub 'arn:aws:s3:::${PipelineArtifactsBucket}'
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DeploymentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobSuccessResult
+                  - codepipeline:PutJobFailureResult
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                Resource: '*'
+
+Outputs:
+  PipelineName:
+    Description: 'Name of the GitHub-integrated pipeline'
+    Value: !Ref GitHubPipeline
+    Export:
+      Name: !Sub '${AWS::StackName}-PipelineName'
+  
+  WebhookUrl:
+    Description: 'GitHub webhook URL'
+    Value: !GetAtt GitHubWebhook.Url
+    Export:
+      Name: !Sub '${AWS::StackName}-WebhookUrl'
+  
+  ArtifactsBucket:
+    Description: 'S3 bucket for pipeline artifacts'
+    Value: !Ref PipelineArtifactsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ArtifactsBucket'

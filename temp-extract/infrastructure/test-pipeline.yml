@@ -1,0 +1,215 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'LambdaDeploy Pipeline - Test Setup'
+
+Parameters:
+  ArtifactBucketName:
+    Type: String
+    Description: Existing S3 bucket for pipeline artifacts
+    Default: lambdadeploy-artifacts-202410211430-654654270223
+
+Resources:
+  # IAM Role for CodePipeline
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "CodePipelineServiceRole-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${ArtifactBucketName}/*"
+                  - !Sub "arn:aws:s3:::${ArtifactBucketName}"
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: !Sub "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/lambdadeploy-build"
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:lambdadeploy-deployment-orchestrator-${AWS::StackName}"
+
+  # Lambda Functions
+  NotificationHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "lambdadeploy-notification-handler-${AWS::StackName}"
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LambdaExecutionRole-lambdadeploy-minimal"
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Notification received:', JSON.stringify(event, null, 2));
+            
+            // Extract pipeline information
+            const detail = event.detail || {};
+            const pipelineName = detail.pipeline || 'Unknown Pipeline';
+            const state = detail.state || 'Unknown State';
+            
+            console.log(`Pipeline: ${pipelineName}, State: ${state}`);
+            
+            // Here you would send to Slack/Teams/etc
+            return { 
+              statusCode: 200, 
+              body: JSON.stringify({
+                message: `Pipeline ${pipelineName} is ${state}`,
+                timestamp: new Date().toISOString()
+              })
+            };
+          };
+      Environment:
+        Variables:
+          SLACK_WEBHOOK_URL: "placeholder-webhook-url"
+      Timeout: 60
+
+  DeploymentOrchestrator:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "lambdadeploy-deployment-orchestrator-${AWS::StackName}"
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LambdaExecutionRole-lambdadeploy-minimal"
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const codepipeline = new AWS.CodePipeline();
+          const lambda = new AWS.Lambda();
+          
+          exports.handler = async (event) => {
+            console.log('Deployment orchestrator triggered:', JSON.stringify(event, null, 2));
+            
+            try {
+              // Get job data from CodePipeline
+              const jobId = event['CodePipeline.job'].id;
+              const inputArtifacts = event['CodePipeline.job'].data.inputArtifacts;
+              
+              console.log('Job ID:', jobId);
+              console.log('Input artifacts:', inputArtifacts);
+              
+              // Simulate deployment process
+              console.log('Starting deployment process...');
+              
+              // Here you would:
+              // 1. Download artifacts from S3
+              // 2. Deploy to target Lambda functions
+              // 3. Run post-deployment tests
+              // 4. Send notifications
+              
+              await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate work
+              
+              console.log('Deployment completed successfully');
+              
+              // Signal success to CodePipeline
+              await codepipeline.putJobSuccessResult({
+                jobId: jobId
+              }).promise();
+              
+              return { 
+                statusCode: 200, 
+                body: 'Deployment completed successfully'
+              };
+              
+            } catch (error) {
+              console.error('Deployment failed:', error);
+              
+              // Signal failure to CodePipeline
+              if (event['CodePipeline.job']) {
+                await codepipeline.putJobFailureResult({
+                  jobId: event['CodePipeline.job'].id,
+                  failureDetails: {
+                    message: error.message,
+                    type: 'JobFailed'
+                  }
+                }).promise();
+              }
+              
+              throw error;
+            }
+          };
+      Environment:
+        Variables:
+          TARGET_FUNCTION_NAME: !Sub "lambdadeploy-app-lambdadeploy-minimal"
+      Timeout: 300
+
+  # CodePipeline with S3 Source (for testing)
+  TestPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub "lambdadeploy-test-pipeline-${AWS::StackName}"
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucketName
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: '1'
+              Configuration:
+                S3Bucket: !Ref ArtifactBucketName
+                S3ObjectKey: source.zip
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: SourceOutput
+
+        - Name: Build
+          Actions:
+            - Name: BuildAction
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: lambdadeploy-build
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+
+        - Name: Deploy
+          Actions:
+            - Name: DeployAction
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Provider: Lambda
+                Version: '1'
+              Configuration:
+                FunctionName: !Sub "lambdadeploy-deployment-orchestrator-${AWS::StackName}"
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+
+Outputs:
+  PipelineName:
+    Description: Name of the test CodePipeline
+    Value: !Ref TestPipeline
+
+  NotificationHandlerArn:
+    Description: ARN of the notification handler Lambda function
+    Value: !GetAtt NotificationHandler.Arn
+
+  DeploymentOrchestratorArn:
+    Description: ARN of the deployment orchestrator Lambda function
+    Value: !GetAtt DeploymentOrchestrator.Arn

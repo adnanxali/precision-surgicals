@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'LambdaDeploy Pipeline - S3 Buckets for Artifacts'
+
+Parameters:
+  BucketPrefix:
+    Type: String
+    Description: Prefix for S3 bucket names
+    Default: lambdadeploy-artifacts
+
+Resources:
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${BucketPrefix}-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+            NoncurrentVersionExpirationInDays: 7
+
+Outputs:
+  ArtifactBucketName:
+    Description: Name of the S3 artifact bucket
+    Value: !Ref ArtifactBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-ArtifactBucket"
+
+  ArtifactBucketArn:
+    Description: ARN of the S3 artifact bucket
+    Value: !GetAtt ArtifactBucket.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ArtifactBucketArn"

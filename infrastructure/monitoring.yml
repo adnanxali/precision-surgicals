@@ -1,0 +1,275 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'LambdaDeploy Pipeline - Monitoring and Alerting'
+
+Parameters:
+  PipelineName:
+    Type: String
+    Description: Name of the CodePipeline
+    Default: lambdadeploy-pipeline
+
+  NotificationEmail:
+    Type: String
+    Description: Email address for alerts
+    Default: devops@company.com
+
+Resources:
+  # CloudWatch Dashboard
+  PipelineDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "${PipelineName}-dashboard"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/CodePipeline", "PipelineExecutionSuccess", "PipelineName", "${PipelineName}" ],
+                  [ ".", "PipelineExecutionFailure", ".", "." ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Pipeline Executions",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/CodeBuild", "Duration", "ProjectName", "${PipelineName}-build" ],
+                  [ ".", "Builds", ".", "." ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Build Metrics",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/Lambda", "Duration", "FunctionName", "${PipelineName}-notification-handler" ],
+                  [ ".", "Errors", ".", "." ],
+                  [ ".", "Invocations", ".", "." ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Notification Handler Metrics",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/Lambda", "Duration", "FunctionName", "${PipelineName}-deployment-orchestrator" ],
+                  [ ".", "Errors", ".", "." ],
+                  [ ".", "Invocations", ".", "." ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Deployment Orchestrator Metrics",
+                "period": 300
+              }
+            }
+          ]
+        }
+
+  # SNS Topic for Alerts
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${PipelineName}-alerts"
+      DisplayName: "LambdaDeploy Pipeline Alerts"
+
+  # SNS Subscription
+  AlertsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # CloudWatch Alarms
+  PipelineFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${PipelineName}-failure-alarm"
+      AlarmDescription: "Alert when pipeline fails"
+      MetricName: PipelineExecutionFailure
+      Namespace: AWS/CodePipeline
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: PipelineName
+          Value: !Ref PipelineName
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  BuildFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${PipelineName}-build-failure-alarm"
+      AlarmDescription: "Alert when build fails"
+      MetricName: FailedBuilds
+      Namespace: AWS/CodeBuild
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: ProjectName
+          Value: !Sub "${PipelineName}-build"
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${PipelineName}-lambda-error-alarm"
+      AlarmDescription: "Alert when Lambda functions error"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 3
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  # Custom Metrics for Cost Tracking
+  CostTrackingLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${PipelineName}-cost-tracking"
+      RetentionInDays: 30
+
+  # Lambda function for cost tracking
+  CostTrackingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${PipelineName}-cost-tracking"
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt CostTrackingRole.Arn
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const cloudwatch = new AWS.CloudWatch();
+          
+          exports.handler = async (event) => {
+            try {
+              // Calculate estimated costs based on usage
+              const metrics = await calculatePipelineCosts();
+              
+              // Put custom metrics
+              await cloudwatch.putMetricData({
+                Namespace: 'LambdaDeploy/Costs',
+                MetricData: metrics
+              }).promise();
+              
+              return { statusCode: 200, body: 'Cost metrics updated' };
+            } catch (error) {
+              console.error('Cost tracking failed:', error);
+              throw error;
+            }
+          };
+          
+          async function calculatePipelineCosts() {
+            // Simplified cost calculation
+            return [
+              {
+                MetricName: 'EstimatedMonthlyCost',
+                Value: 25.00, // Placeholder value
+                Unit: 'None',
+                Timestamp: new Date()
+              }
+            ];
+          }
+      Environment:
+        Variables:
+          PIPELINE_NAME: !Ref PipelineName
+
+  CostTrackingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CostTrackingPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                  - ce:GetCostAndUsage
+                  - ce:GetUsageReport
+                Resource: "*"
+
+  # EventBridge Rule to trigger cost tracking daily
+  CostTrackingSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${PipelineName}-cost-tracking-schedule"
+      Description: "Daily cost tracking for pipeline"
+      ScheduleExpression: "rate(1 day)"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt CostTrackingFunction.Arn
+          Id: CostTrackingTarget
+
+  CostTrackingPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CostTrackingFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt CostTrackingSchedule.Arn
+
+Outputs:
+  DashboardURL:
+    Description: URL to the CloudWatch Dashboard
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${PipelineName}-dashboard"
+
+  AlertsTopicArn:
+    Description: ARN of the SNS topic for alerts
+    Value: !Ref AlertsTopic
+    Export:
+      Name: !Sub "${AWS::StackName}-AlertsTopic"

@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'LambdaDeploy Pipeline - CodeBuild Project'
+
+Parameters:
+  ServiceRole:
+    Type: String
+    Description: ARN of the CodeBuild service role
+
+  ProjectName:
+    Type: String
+    Description: Name of the CodeBuild project
+    Default: lambdadeploy-build
+
+  ArtifactBucket:
+    Type: String
+    Description: S3 bucket for artifacts
+    Default: ""
+
+Resources:
+  # IAM Role for CodeBuild (if not provided)
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Condition: CreateServiceRole
+    Properties:
+      RoleName: !Sub "${ProjectName}-CodeBuildServiceRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource: 
+                  - !Sub "arn:aws:s3:::${ArtifactBucket}/*"
+                  - !Sub "arn:aws:s3:::${ArtifactBucket}"
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lambdadeploy/*"
+
+  # CodeBuild Project
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref ProjectName
+      ServiceRole: !If 
+        - CreateServiceRole
+        - !GetAtt CodeBuildServiceRole.Arn
+        - !Ref ServiceRole
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
+        EnvironmentVariables:
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          env:
+            variables:
+              NODE_ENV: production
+            parameter-store:
+              SLACK_WEBHOOK_URL: /lambdadeploy/slack-webhook-url
+          phases:
+            install:
+              runtime-versions:
+                nodejs: 18
+              commands:
+                - echo "Installing dependencies..."
+                - npm install
+            pre_build:
+              commands:
+                - echo "Running pre-build tasks..."
+                - npm run lint
+                - echo "Running tests..."
+                - npm test
+            build:
+              commands:
+                - echo "Building application..."
+                - npm run build
+                - echo "Packaging Lambda functions..."
+                - cd src/lambda/notification-handler && npm install --production && cd ../../..
+                - cd src/lambda/deployment-orchestrator && npm install --production && cd ../../..
+                - zip -r notification-handler.zip src/lambda/notification-handler/
+                - zip -r deployment-orchestrator.zip src/lambda/deployment-orchestrator/
+                - zip -r app.zip src/app/
+            post_build:
+              commands:
+                - echo "Build completed on `date`"
+          artifacts:
+            files:
+              - '**/*'
+          cache:
+            paths:
+              - 'node_modules/**/*'
+
+Conditions:
+  CreateServiceRole: !Equals [!Ref ServiceRole, ""]
+  HasArtifactBucket: !Not [!Equals [!Ref ArtifactBucket, ""]]
+
+Outputs:
+  CodeBuildProjectName:
+    Description: Name of the CodeBuild project
+    Value: !Ref CodeBuildProject
+    Export:
+      Name: !Sub "${AWS::StackName}-CodeBuildProject"
+
+  CodeBuildProjectArn:
+    Description: ARN of the CodeBuild project
+    Value: !GetAtt CodeBuildProject.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-CodeBuildProjectArn"

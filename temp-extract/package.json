@@ -1,0 +1,47 @@
+{
+  "name": "lambdadeploy-pipeline",
+  "version": "1.0.0",
+  "description": "Serverless CI/CD pipeline using AWS CodePipeline, CodeBuild, and Lambda",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "build": "npm run lint && npm test",
+    "setup-iam": "node scripts/setup-iam-roles.js",
+    "setup-phase4": "node scripts/setup-phase4.js",
+    "deploy": "node scripts/deploy.js",
+    "deploy:dev": "NODE_ENV=development npm run deploy",
+    "deploy:prod": "NODE_ENV=production npm run deploy",
+    "clean": "node scripts/cleanup.js",
+    "logs": "node scripts/view-logs.js"
+  },
+  "keywords": [
+    "aws",
+    "codepipeline",
+    "codebuild",
+    "lambda",
+    "serverless",
+    "cicd",
+    "devops"
+  ],
+  "author": "DevOps Intern Team",
+  "license": "MIT",
+  "dependencies": {
+    "aws-sdk": "^2.1490.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^8.54.0",
+    "eslint-config-standard": "^17.1.0",
+    "@aws-sdk/client-codepipeline": "^3.450.0",
+    "@aws-sdk/client-lambda": "^3.450.0",
+    "@aws-sdk/client-s3": "^3.450.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

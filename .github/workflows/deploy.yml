@@ -1,0 +1,118 @@
+name: Deploy to AWS Lambda
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: '18'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run tests
+      run: npm test
+    
+    - name: Run linting
+      run: npm run lint
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build application
+      run: npm run build
+    
+    - name: Deploy to AWS
+      run: |
+        echo "🚀 Triggering AWS CodePipeline deployment..."
+        aws codepipeline start-pipeline-execution \
+          --name lambdadeploy-github-integration-github-pipeline \
+          --region ${{ env.AWS_REGION }}
+    
+    - name: Wait for deployment
+      run: |
+        echo "⏳ Waiting for pipeline execution to complete..."
+        sleep 30
+        
+        # Get the latest execution
+        EXECUTION_ID=$(aws codepipeline list-pipeline-executions \
+          --pipeline-name lambdadeploy-github-integration-github-pipeline \
+          --max-items 1 \
+          --query 'pipelineExecutionSummaries[0].pipelineExecutionId' \
+          --output text)
+        
+        echo "Monitoring execution: $EXECUTION_ID"
+        
+        # Monitor execution status
+        while true; do
+          STATUS=$(aws codepipeline get-pipeline-execution \
+            --pipeline-name lambdadeploy-github-integration-github-pipeline \
+            --pipeline-execution-id $EXECUTION_ID \
+            --query 'pipelineExecution.status' \
+            --output text)
+          
+          echo "Pipeline status: $STATUS"
+          
+          if [ "$STATUS" = "Succeeded" ]; then
+            echo "✅ Deployment completed successfully!"
+            break
+          elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "Stopped" ]; then
+            echo "❌ Deployment failed with status: $STATUS"
+            exit 1
+          fi
+          
+          sleep 15
+        done
+
+  notify:
+    needs: [test, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Notify deployment status
+      run: |
+        if [ "${{ needs.deploy.result }}" = "success" ]; then
+          echo "✅ Deployment successful! Lambda functions have been updated."
+        else
+          echo "❌ Deployment failed. Check the pipeline logs for details."
+        fi

@@ -1,0 +1,64 @@
+version: 0.2
+
+env:
+  variables:
+    NODE_ENV: production
+  parameter-store:
+    SLACK_WEBHOOK_URL: /lambdadeploy/slack-webhook-url
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+    commands:
+      - echo "Installing dependencies..."
+      - npm install
+
+  pre_build:
+    commands:
+      - echo "Running pre-build tasks..."
+      - npm run lint
+      - echo "Running tests..."
+      - npm test
+
+  build:
+    commands:
+      - echo "Building application..."
+      - npm run build
+      - echo "Packaging Lambda functions..."
+      - cd src/lambda/notification-handler && npm install --production && cd ../../..
+      - cd src/lambda/deployment-orchestrator && npm install --production && cd ../../..
+      - zip -r notification-handler.zip src/lambda/notification-handler/
+      - zip -r deployment-orchestrator.zip src/lambda/deployment-orchestrator/
+      - zip -r app.zip src/app/
+
+  post_build:
+    commands:
+      - echo "Post-build tasks..."
+      - echo "Build completed on `date`"
+      - |
+        if [ $CODEBUILD_BUILD_SUCCEEDING -eq 1 ]; then
+          echo "Build succeeded"
+        else
+          echo "Build failed"
+          exit 1
+        fi
+
+artifacts:
+  files:
+    - '**/*'
+  secondary-artifacts:
+    notification-handler:
+      files:
+        - notification-handler.zip
+    deployment-orchestrator:
+      files:
+        - deployment-orchestrator.zip
+    app:
+      files:
+        - app.zip
+
+cache:
+  paths:
+    - 'node_modules/**/*'
+    - 'src/lambda/*/node_modules/**/*'

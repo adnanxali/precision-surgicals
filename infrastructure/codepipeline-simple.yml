@@ -1,0 +1,367 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'LambdaDeploy Pipeline - Simplified Infrastructure'
+
+Parameters:
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    Description: GitHub personal access token
+  
+  RepositoryOwner:
+    Type: String
+    Description: GitHub repository owner
+    Default: test-user
+  
+  RepositoryName:
+    Type: String
+    Description: GitHub repository name
+    Default: test-repo
+  
+  BranchName:
+    Type: String
+    Description: Git branch to track
+    Default: main
+  
+  ArtifactBucketName:
+    Type: String
+    Description: S3 bucket for pipeline artifacts
+    Default: lambdadeploy-artifacts
+
+Resources:
+  # S3 Bucket for Pipeline Artifacts
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ArtifactBucketName}-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+
+  # IAM Role for CodePipeline
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "CodePipelineServiceRole-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Sub "${ArtifactBucket}/*"
+                  - !GetAtt ArtifactBucket.Arn
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: !GetAtt CodeBuildProject.Arn
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:lambdadeploy-deployment-orchestrator-${AWS::StackName}"
+
+  # IAM Role for CodeBuild
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "CodeBuildServiceRole-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource: !Sub "${ArtifactBucket}/*"
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lambdadeploy/*"
+
+  # IAM Role for Lambda Functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "LambdaExecutionRole-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobSuccessResult
+                  - codepipeline:PutJobFailureResult
+                  - codepipeline:GetPipelineExecution
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "${ArtifactBucket}/*"
+              - Effect: Allow
+                Action:
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:lambdadeploy-app-${AWS::StackName}"
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lambdadeploy/*"
+
+  # CodeBuild Project
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "lambdadeploy-build-${AWS::StackName}"
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
+        EnvironmentVariables:
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          env:
+            variables:
+              NODE_ENV: production
+            parameter-store:
+              SLACK_WEBHOOK_URL: /lambdadeploy/slack-webhook-url
+          phases:
+            install:
+              runtime-versions:
+                nodejs: 18
+              commands:
+                - echo "Installing dependencies..."
+                - npm install
+            pre_build:
+              commands:
+                - echo "Running pre-build tasks..."
+                - npm run lint
+                - echo "Running tests..."
+                - npm test
+            build:
+              commands:
+                - echo "Building application..."
+                - npm run build
+                - echo "Packaging Lambda functions..."
+                - cd src/lambda/notification-handler && npm install --production && cd ../../..
+                - cd src/lambda/deployment-orchestrator && npm install --production && cd ../../..
+                - zip -r notification-handler.zip src/lambda/notification-handler/
+                - zip -r deployment-orchestrator.zip src/lambda/deployment-orchestrator/
+                - zip -r app.zip src/app/
+            post_build:
+              commands:
+                - echo "Build completed on `date`"
+          artifacts:
+            files:
+              - '**/*'
+          cache:
+            paths:
+              - 'node_modules/**/*'
+
+  # Lambda Functions
+  NotificationHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "lambdadeploy-notification-handler-${AWS::StackName}"
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Notification handler placeholder');
+            return { statusCode: 200, body: 'OK' };
+          };
+      Environment:
+        Variables:
+          SLACK_WEBHOOK_URL: "placeholder-webhook-url"
+      Timeout: 60
+
+  DeploymentOrchestrator:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "lambdadeploy-deployment-orchestrator-${AWS::StackName}"
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Deployment orchestrator placeholder');
+            return { statusCode: 200, body: 'OK' };
+          };
+      Environment:
+        Variables:
+          TARGET_FUNCTION_NAME: !Sub "lambdadeploy-app-${AWS::StackName}"
+      Timeout: 300
+
+  SampleApp:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "lambdadeploy-app-${AWS::StackName}"
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return {
+              statusCode: 200,
+              body: JSON.stringify({
+                message: 'Hello from LambdaDeploy Pipeline!',
+                timestamp: new Date().toISOString()
+              })
+            };
+          };
+      Environment:
+        Variables:
+          NODE_ENV: production
+
+  # CodePipeline
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub "lambdadeploy-pipeline-${AWS::StackName}"
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: '1'
+              Configuration:
+                Owner: !Ref RepositoryOwner
+                Repo: !Ref RepositoryName
+                Branch: !Ref BranchName
+                OAuthToken: !Ref GitHubToken
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: SourceOutput
+
+        - Name: Build
+          Actions:
+            - Name: BuildAction
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+
+        - Name: Deploy
+          Actions:
+            - Name: DeployAction
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Provider: Lambda
+                Version: '1'
+              Configuration:
+                FunctionName: !Sub "lambdadeploy-deployment-orchestrator-${AWS::StackName}"
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+
+Outputs:
+  PipelineName:
+    Description: Name of the CodePipeline
+    Value: !Ref CodePipeline
+    Export:
+      Name: !Sub "${AWS::StackName}-PipelineName"
+
+  ArtifactBucketName:
+    Description: Name of the S3 artifact bucket
+    Value: !Ref ArtifactBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-ArtifactBucket"
+
+  NotificationHandlerArn:
+    Description: ARN of the notification handler Lambda function
+    Value: !GetAtt NotificationHandler.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-NotificationHandler"
+
+  DeploymentOrchestratorArn:
+    Description: ARN of the deployment orchestrator Lambda function
+    Value: !GetAtt DeploymentOrchestrator.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-DeploymentOrchestrator"
+
+  SampleAppArn:
+    Description: ARN of the sample application Lambda function
+    Value: !GetAtt SampleApp.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-SampleApp"
